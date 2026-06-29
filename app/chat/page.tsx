@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
-import { Send, Users, Loader2, Globe } from 'lucide-react';
+import { Send, Users, Loader2, Globe, Trash2 } from 'lucide-react';
 
 function formatTimeAgo(date: string | Date): string {
   const now = new Date();
@@ -22,9 +22,18 @@ export default function ChatPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [sendStatus, setSendStatus] = useState<'idle' | 'sending' | 'sent' | 'error'>('idle');
+  const [dbInfo, setDbInfo] = useState<string>('Checking...');
   const chatEndRef = useRef<HTMLDivElement>(null);
   const supabaseRef = useRef(createClientComponentClient());
   const channelRef = useRef<any>(null);
+
+  // Clear any localStorage cache on mount
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem('chat_messages');
+      localStorage.removeItem('chat_cache');
+    }
+  }, []);
 
   // Load user once
   useEffect(() => {
@@ -42,7 +51,20 @@ export default function ChatPage() {
 
     async function init() {
       try {
-        // Load messages WITHOUT profiles join
+        // First, check what's in the database
+        const { data: allMsgs, error: countErr } = await supabase
+          .from('chat_messages')
+          .select('id, match_id, content, created_at')
+          .order('created_at', { ascending: false })
+          .limit(10);
+
+        if (countErr) {
+          setDbInfo(`DB Error: ${countErr.message}`);
+        } else {
+          setDbInfo(`DB has ${allMsgs?.length || 0} recent messages. match_ids: ${(allMsgs || []).map((m: any) => m.match_id).join(', ')}`);
+        }
+
+        // Load messages for global chat
         const { data: msgs, error: fetchErr } = await supabase
           .from('chat_messages')
           .select('*')
@@ -59,7 +81,7 @@ export default function ChatPage() {
           return;
         }
 
-        // Fetch profiles for all unique user_ids
+        // Fetch profiles
         const userIds = (msgs || []).map((m: any) => m.user_id).filter(Boolean);
         const uniqueUserIds = Array.from(new Set(userIds));
 
@@ -81,7 +103,7 @@ export default function ChatPage() {
           setLoading(false);
         }
 
-        // Subscribe to new messages
+        // Subscribe
         const channel = supabase
           .channel('global-chat-v2')
           .on(
@@ -93,9 +115,6 @@ export default function ChatPage() {
               filter: 'match_id=eq.global',
             },
             async (payload: any) => {
-              console.log('New message:', payload.new);
-
-              // Fetch profile for new message if not cached
               const uid = payload.new?.user_id;
               if (uid && !profiles[uid]) {
                 const { data: prof } = await supabase
@@ -107,7 +126,6 @@ export default function ChatPage() {
                   setProfiles((prev) => ({ ...prev, [uid]: prof }));
                 }
               }
-
               setMessages((prev) => {
                 if (prev.some((m) => m.id === payload.new.id)) return prev;
                 return [...prev, payload.new];
@@ -140,7 +158,6 @@ export default function ChatPage() {
     };
   }, []);
 
-  // Auto-scroll
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
@@ -161,12 +178,10 @@ export default function ChatPage() {
       });
 
       if (insertErr) throw insertErr;
-
       setNewMessage('');
       setSendStatus('sent');
       setTimeout(() => setSendStatus('idle'), 1000);
     } catch (err: any) {
-      console.error('Send error:', err);
       setError(`Send failed: ${err.message}`);
       setSendStatus('error');
       setTimeout(() => {
@@ -175,6 +190,18 @@ export default function ChatPage() {
       }, 3000);
     }
   }, [newMessage, user]);
+
+  const handleClearAll = async () => {
+    if (!confirm('Delete ALL chat messages from database?')) return;
+    const supabase = supabaseRef.current;
+    const { error } = await supabase.from('chat_messages').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+    if (error) {
+      setError(`Delete failed: ${error.message}`);
+    } else {
+      setMessages([]);
+      setDbInfo('All messages deleted');
+    }
+  };
 
   const getProfile = (userId: string) => profiles[userId] || null;
 
@@ -193,6 +220,19 @@ export default function ChatPage() {
             <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
             <span className="text-sm text-slate-500">{messages.length} messages</span>
           </div>
+        </div>
+
+        {/* DEBUG INFO */}
+        <div className="mb-4 p-3 bg-blue-500/10 border border-blue-500/20 rounded-xl">
+          <p className="text-xs text-blue-400 font-mono">{dbInfo}</p>
+          {user && (
+            <button
+              onClick={handleClearAll}
+              className="mt-2 text-xs text-red-400 hover:text-red-300 flex items-center gap-1"
+            >
+              <Trash2 size={12} /> Delete all messages
+            </button>
+          )}
         </div>
 
         {error && (
