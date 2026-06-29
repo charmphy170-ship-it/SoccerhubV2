@@ -20,6 +20,13 @@ const LEAGUES = [
   { id: 'por.1', name: 'Primeira Liga' },
 ];
 
+function formatDateForESPN(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}${month}${day}`;
+}
+
 async function fetchESPN(leagueId: string, date?: string) {
   let url = `${ESPN_BASE}/${leagueId}/scoreboard`;
   if (date) {
@@ -28,7 +35,6 @@ async function fetchESPN(leagueId: string, date?: string) {
 
   try {
     const res = await fetch(url, {
-      next: { revalidate: 60 },
       headers: { 'Accept': 'application/json' },
     });
 
@@ -45,22 +51,39 @@ async function fetchESPN(leagueId: string, date?: string) {
 }
 
 export async function getAllMatches(date?: string) {
-  const results = await Promise.allSettled(
-    LEAGUES.map((l) => fetchESPN(l.id, date))
-  );
+  const datesToFetch = date
+    ? [date]
+    : [
+        formatDateForESPN(new Date()),
+        formatDateForESPN(new Date(Date.now() - 86400000)),
+        formatDateForESPN(new Date(Date.now() + 86400000)),
+      ];
 
-  const allMatches: any[] = [];
+  const allResults: any[] = [];
 
-  results.forEach((result, index) => {
-    if (result.status === 'fulfilled' && result.value?.events) {
-      const league = LEAGUES[index];
-      result.value.events.forEach((event: any) => {
-        allMatches.push(transformESPNEvent(event, league));
-      });
-    }
+  for (const d of datesToFetch) {
+    const results = await Promise.allSettled(
+      LEAGUES.map((l) => fetchESPN(l.id, d))
+    );
+
+    results.forEach((result, index) => {
+      if (result.status === 'fulfilled' && result.value?.events) {
+        const league = LEAGUES[index];
+        result.value.events.forEach((event: any) => {
+          allResults.push(transformESPNEvent(event, league));
+        });
+      }
+    });
+  }
+
+  const seen = new Set<string>();
+  const uniqueMatches = allResults.filter((m) => {
+    if (seen.has(m.id)) return false;
+    seen.add(m.id);
+    return true;
   });
 
-  return allMatches.sort(
+  return uniqueMatches.sort(
     (a, b) =>
       new Date(a.match_time).getTime() - new Date(b.match_time).getTime()
   );
@@ -69,11 +92,19 @@ export async function getAllMatches(date?: string) {
 export async function getMatchById(matchId: string) {
   for (const league of LEAGUES) {
     try {
-      const data = await fetchESPN(league.id);
-      if (data?.events) {
-        const match = data.events.find((e: any) => e.id === matchId);
-        if (match) {
-          return transformESPNEvent(match, league);
+      const dates = [
+        formatDateForESPN(new Date()),
+        formatDateForESPN(new Date(Date.now() - 86400000)),
+        formatDateForESPN(new Date(Date.now() + 86400000)),
+      ];
+
+      for (const date of dates) {
+        const data = await fetchESPN(league.id, date);
+        if (data?.events) {
+          const match = data.events.find((e: any) => e.id === matchId);
+          if (match) {
+            return transformESPNEvent(match, league);
+          }
         }
       }
     } catch {
@@ -98,8 +129,16 @@ function transformESPNEvent(event: any, league: any) {
   const status = event.status?.type;
 
   let matchStatus: 'upcoming' | 'live' | 'finished' = 'upcoming';
-  if (status?.state === 'in') matchStatus = 'live';
-  else if (status?.completed) matchStatus = 'finished';
+  const state = status?.state;
+  const completed = status?.completed;
+
+  if (state === 'in') {
+    matchStatus = 'live';
+  } else if (completed === true || state === 'post') {
+    matchStatus = 'finished';
+  } else if (state === 'pre') {
+    matchStatus = 'upcoming';
+  }
 
   const odds = event.competitions?.[0]?.odds?.[0];
 

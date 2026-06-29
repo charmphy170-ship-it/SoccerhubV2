@@ -16,6 +16,7 @@ export default function FeedPage() {
   const [user, setUser] = useState<any>(null);
   const [counts, setCounts] = useState({ today: 0, tomorrow: 0, live: 0, upcoming: 0 });
   const [selectedLeague, setSelectedLeague] = useState('all');
+  const [error, setError] = useState<string | null>(null);
   const router = useRouter();
   const supabase = createClientComponentClient();
 
@@ -27,12 +28,14 @@ export default function FeedPage() {
 
   const fetchMatches = useCallback(async () => {
     setLoading(true);
+    setError(null);
     try {
       const all = await getAllMatches();
       setMatches(all);
       setLastUpdated(new Date().toLocaleTimeString());
-    } catch (err) {
+    } catch (err: any) {
       console.error('Fetch error:', err);
+      setError(err.message || 'Failed to load matches');
     } finally {
       setLoading(false);
     }
@@ -40,7 +43,7 @@ export default function FeedPage() {
 
   useEffect(() => {
     fetchMatches();
-    const interval = setInterval(fetchMatches, 60000);
+    const interval = setInterval(fetchMatches, 30000);
     return () => clearInterval(interval);
   }, [fetchMatches]);
 
@@ -52,7 +55,7 @@ export default function FeedPage() {
     const dayAfter = new Date(tomorrow);
     dayAfter.setDate(dayAfter.getDate() + 1);
 
-    let result = matches;
+    let result = [...matches];
 
     if (selectedLeague !== 'all') {
       result = result.filter((m) => m.league === selectedLeague);
@@ -203,15 +206,20 @@ export default function FeedPage() {
                 <button
                   key={league}
                   onClick={() => setSelectedLeague(league)}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-medium transition ${
-                    selectedLeague === league
+                  className={`px-3 py-1.5 rounded-lg text-xs font-medium transition ${selectedLeague === league
                       ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
                       : 'glass text-slate-500 hover:text-slate-300'
-                  }`}
+                    }`}
                 >
                   {league === 'all' ? 'All Leagues' : league}
                 </button>
               ))}
+            </div>
+          )}
+
+          {error && (
+            <div className="mb-6 p-4 bg-red-500/10 border border-red-500/20 rounded-xl text-red-400 text-sm text-center">
+              {error}
             </div>
           )}
 
@@ -239,7 +247,7 @@ export default function FeedPage() {
           </div>
         ) : filtered.length === 0 ? (
           <div className="text-center py-24 glass-strong rounded-3xl">
-            <div className="text-7xl mb-6">🏟️</div>
+            <div className="text-7xl mb-6">⚽</div>
             <h3 className="text-2xl font-bold text-white mb-3">
               No matches {getFilterLabel()}
             </h3>
@@ -260,7 +268,7 @@ export default function FeedPage() {
             {filter === 'today' && counts.today > 0 && (
               <div className="mb-6 p-4 bg-gradient-to-r from-green-500/10 to-emerald-500/10 border border-green-500/20 rounded-2xl text-center">
                 <span className="text-green-400 font-bold text-lg">
-                  🏆 {counts.today} match{counts.today !== 1 ? 'es' : ''} today!
+                  🔥 {counts.today} match{counts.today !== 1 ? 'es' : ''} today!
                 </span>
               </div>
             )}
