@@ -4,29 +4,23 @@ import { useState, useEffect, useRef } from 'react';
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
 import { Send, Users, Loader2, Globe } from 'lucide-react';
 
-function formatTimeAgo(date: string | Date): string {
-  const now = new Date();
-  const then = new Date(date);
-  const diff = Math.floor((now.getTime() - then.getTime()) / 1000);
-  if (diff < 60) return 'just now';
-  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
-  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
-  return `${Math.floor(diff / 86400)}d ago`;
-}
-
 export default function ChatPage() {
   const [messages, setMessages] = useState<any[]>([]);
   const [newMessage, setNewMessage] = useState('');
   const [user, setUser] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [debug, setDebug] = useState<string>('');
   const [sending, setSending] = useState(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
   const supabase = createClientComponentClient();
   const channelRef = useRef<any>(null);
 
   useEffect(() => {
-    supabase.auth.getUser().then(({ data }) => setUser(data.user));
+    supabase.auth.getUser().then(({ data }) => {
+      setUser(data.user);
+      setDebug(prev => prev + `\nUser: ${data.user?.id || 'none'}`);
+    });
   }, [supabase]);
 
   useEffect(() => {
@@ -34,12 +28,27 @@ export default function ChatPage() {
 
     const loadMessages = async () => {
       try {
+        setDebug(prev => prev + '\nLoading messages...');
+        
+        // Try without profiles join first
+        const { data: rawData, error: rawError } = await supabase
+          .from('chat_messages')
+          .select('*')
+          .eq('match_id', 'global')
+          .order('created_at', { ascending: true })
+          .limit(100);
+
+        setDebug(prev => prev + `\nRaw query: ${rawData?.length || 0} msgs, error: ${rawError?.message || 'none'}`);
+
+        // Then try with profiles join
         const { data, error: fetchError } = await supabase
           .from('chat_messages')
           .select('*, profiles(username, avatar_url)')
           .eq('match_id', 'global')
           .order('created_at', { ascending: true })
           .limit(100);
+
+        setDebug(prev => prev + `\nWith profiles: ${data?.length || 0} msgs, error: ${fetchError?.message || 'none'}`);
 
         if (fetchError) throw fetchError;
         if (isMounted) {
@@ -48,6 +57,7 @@ export default function ChatPage() {
         }
       } catch (err: any) {
         console.error('Chat load error:', err);
+        setDebug(prev => prev + `\nLOAD ERROR: ${err.message}`);
         if (isMounted) {
           setError(err.message || 'Failed to load messages');
           setLoading(false);
@@ -56,6 +66,8 @@ export default function ChatPage() {
     };
 
     const setupSubscription = () => {
+      setDebug(prev => prev + '\nSetting up subscription...');
+      
       const channel = supabase
         .channel('global-chat')
         .on(
@@ -67,6 +79,7 @@ export default function ChatPage() {
             filter: 'match_id=eq.global',
           },
           (payload: any) => {
+            setDebug(prev => prev + `\nRealtime received: ${payload.new?.content?.substring(0, 20)}`);
             setMessages((prev) => {
               if (prev.some((m) => m.id === payload.new.id)) return prev;
               return [...prev, payload.new];
@@ -74,7 +87,7 @@ export default function ChatPage() {
           }
         )
         .subscribe((status: string) => {
-          console.log('Global chat subscription status:', status);
+          setDebug(prev => prev + `\nSubscription status: ${status}`);
           if (status === 'CHANNEL_ERROR') {
             setError('Chat connection failed. Retrying...');
           }
@@ -105,16 +118,19 @@ export default function ChatPage() {
 
     setSending(true);
     try {
-      const { error: insertError } = await supabase.from('chat_messages').insert({
+      const { data, error: insertError } = await supabase.from('chat_messages').insert({
         match_id: 'global',
         user_id: user.id,
         content: newMessage.trim(),
-      });
+      }).select();
+
+      setDebug(prev => prev + `\nSend result: ${data ? 'success' : 'fail'}, error: ${insertError?.message || 'none'}`);
 
       if (insertError) throw insertError;
       setNewMessage('');
     } catch (err: any) {
       console.error('Send error:', err);
+      setDebug(prev => prev + `\nSEND ERROR: ${err.message}`);
       setError('Failed to send message. Please try again.');
       setTimeout(() => setError(null), 3000);
     } finally {
@@ -126,15 +142,13 @@ export default function ChatPage() {
     <div className="min-h-screen bg-slate-950 text-white">
       <div className="max-w-3xl mx-auto px-4 py-8">
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-gradient-to-br from-green-500 to-emerald-600 mb-4 shadow-lg shadow-green-500/30">
-            <Globe size={32} className="text-white" />
-          </div>
-          <h1 className="text-4xl font-black bg-gradient-to-r from-green-400 to-emerald-500 bg-clip-text text-transparent mb-2">Global Chat</h1>
+          <h1 className="text-4xl font-black text-green-400 mb-2">Global Chat</h1>
           <p className="text-slate-400">Talk football with the community</p>
-          <div className="flex items-center justify-center gap-2 mt-3">
-            <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
-            <span className="text-sm text-slate-500">{messages.length} messages</span>
-          </div>
+        </div>
+
+        {/* DEBUG PANEL */}
+        <div className="mb-4 p-3 bg-yellow-500/10 border border-yellow-500/20 rounded-xl">
+          <p className="text-xs text-yellow-400 font-mono whitespace-pre-wrap">{debug || 'Loading...'}</p>
         </div>
 
         {error && (
@@ -144,7 +158,7 @@ export default function ChatPage() {
         )}
 
         <div className="bg-slate-900/60 border border-slate-700/40 rounded-3xl overflow-hidden">
-          <div className="h-[60vh] overflow-y-auto p-4 space-y-3">
+          <div className="h-[50vh] overflow-y-auto p-4 space-y-3">
             {loading ? (
               <div className="flex items-center justify-center h-full">
                 <Loader2 size={24} className="animate-spin text-green-500" />
@@ -157,13 +171,13 @@ export default function ChatPage() {
             ) : (
               messages.map((msg) => (
                 <div key={msg.id} className="flex items-start gap-3">
-                  <div className="w-9 h-9 rounded-full bg-gradient-to-br from-green-500 to-emerald-600 flex items-center justify-center text-white text-xs font-bold shrink-0">
-                    {msg.profiles?.username?.charAt(0).toUpperCase() || '?'}
+                  <div className="w-9 h-9 rounded-full bg-green-500 flex items-center justify-center text-white text-xs font-bold shrink-0">
+                    {msg.profiles?.username?.charAt(0).toUpperCase() || msg.user_id?.charAt(0) || '?'}
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-1">
-                      <span className="text-sm font-semibold text-white">{msg.profiles?.username || 'Anonymous'}</span>
-                      <span className="text-xs text-slate-600">{formatTimeAgo(msg.created_at)}</span>
+                      <span className="text-sm font-semibold text-white">{msg.profiles?.username || 'User'}</span>
+                      <span className="text-xs text-slate-600">{new Date(msg.created_at).toLocaleTimeString()}</span>
                     </div>
                     <p className="text-sm text-slate-300 break-words">{msg.content}</p>
                   </div>
