@@ -16,6 +16,7 @@ function formatTimeAgo(date: string | Date): string {
 
 export default function ChatPage() {
   const [messages, setMessages] = useState<any[]>([]);
+  const [profiles, setProfiles] = useState<Record<string, any>>({});
   const [newMessage, setNewMessage] = useState('');
   const [user, setUser] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -41,10 +42,10 @@ export default function ChatPage() {
 
     async function init() {
       try {
-        // Load existing messages
-        const { data, error: fetchErr } = await supabase
+        // Load messages WITHOUT profiles join
+        const { data: msgs, error: fetchErr } = await supabase
           .from('chat_messages')
-          .select('*, profiles(username, avatar_url)')
+          .select('*')
           .eq('match_id', 'global')
           .order('created_at', { ascending: true })
           .limit(100);
@@ -58,8 +59,23 @@ export default function ChatPage() {
           return;
         }
 
+        // Fetch profiles for all unique user_ids
+        const uniqueUserIds = [...new Set((msgs || []).map((m: any) => m.user_id).filter(Boolean))];
+        if (uniqueUserIds.length > 0) {
+          const { data: profs } = await supabase
+            .from('profiles')
+            .select('id, username, avatar_url')
+            .in('id', uniqueUserIds);
+
+          const profMap: Record<string, any> = {};
+          (profs || []).forEach((p: any) => {
+            profMap[p.id] = p;
+          });
+          if (mounted) setProfiles(profMap);
+        }
+
         if (mounted) {
-          setMessages(data || []);
+          setMessages(msgs || []);
           setLoading(false);
         }
 
@@ -74,8 +90,22 @@ export default function ChatPage() {
               table: 'chat_messages',
               filter: 'match_id=eq.global',
             },
-            (payload: any) => {
+            async (payload: any) => {
               console.log('New message:', payload.new);
+
+              // Fetch profile for new message if not cached
+              const uid = payload.new?.user_id;
+              if (uid && !profiles[uid]) {
+                const { data: prof } = await supabase
+                  .from('profiles')
+                  .select('id, username, avatar_url')
+                  .eq('id', uid)
+                  .single();
+                if (prof) {
+                  setProfiles((prev) => ({ ...prev, [uid]: prof }));
+                }
+              }
+
               setMessages((prev) => {
                 if (prev.some((m) => m.id === payload.new.id)) return prev;
                 return [...prev, payload.new];
@@ -144,6 +174,8 @@ export default function ChatPage() {
     }
   }, [newMessage, user]);
 
+  const getProfile = (userId: string) => profiles[userId] || null;
+
   return (
     <div className="min-h-screen bg-slate-950 text-white">
       <div className="max-w-3xl mx-auto px-4 py-8">
@@ -184,24 +216,27 @@ export default function ChatPage() {
                 )}
               </div>
             ) : (
-              messages.map((msg) => (
-                <div key={msg.id} className="flex items-start gap-3">
-                  <div className="w-9 h-9 rounded-full bg-gradient-to-br from-green-500 to-emerald-600 flex items-center justify-center text-white text-xs font-bold shrink-0">
-                    {msg.profiles?.username?.charAt(0).toUpperCase() || '?'}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 mb-1">
-                      <span className="text-sm font-semibold text-white">
-                        {msg.profiles?.username || 'Anonymous'}
-                      </span>
-                      <span className="text-xs text-slate-600">
-                        {formatTimeAgo(msg.created_at)}
-                      </span>
+              messages.map((msg) => {
+                const prof = getProfile(msg.user_id);
+                return (
+                  <div key={msg.id} className="flex items-start gap-3">
+                    <div className="w-9 h-9 rounded-full bg-gradient-to-br from-green-500 to-emerald-600 flex items-center justify-center text-white text-xs font-bold shrink-0">
+                      {prof?.username?.charAt(0).toUpperCase() || '?'}
                     </div>
-                    <p className="text-sm text-slate-300 break-words">{msg.content}</p>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="text-sm font-semibold text-white">
+                          {prof?.username || 'Anonymous'}
+                        </span>
+                        <span className="text-xs text-slate-600">
+                          {formatTimeAgo(msg.created_at)}
+                        </span>
+                      </div>
+                      <p className="text-sm text-slate-300 break-words">{msg.content}</p>
+                    </div>
                   </div>
-                </div>
-              ))
+                );
+              })
             )}
             <div ref={chatEndRef} />
           </div>
