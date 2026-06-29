@@ -1,0 +1,31 @@
+'use client';
+
+import { useEffect } from 'react';
+
+export default function ErrorPage({
+  error,
+  reset,
+}: {
+  error: Error & { digest?: string };
+  reset: () => void;
+}) {
+  useEffect(() => {
+    console.error(error);
+  }, [error]);
+
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-slate-950">
+      <div className="text-center">
+        <div className="text-6xl mb-4">⚠️</div>
+        <h2 className="text-2xl font-bold text-red-400 mb-4">Something went wrong!</h2>
+        <p className="text-slate-400 mb-6">{error.message}</p>
+        <button
+          onClick={reset}
+          className="px-6 py-3 bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 rounded-xl font-bold transition"
+        >
+          Try again
+        </button>
+      </div>
+    </div>
+  );
+}
