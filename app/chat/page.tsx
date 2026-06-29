@@ -60,7 +60,9 @@ export default function ChatPage() {
         }
 
         // Fetch profiles for all unique user_ids
-        const uniqueUserIds = [...new Set((msgs || []).map((m: any) => m.user_id).filter(Boolean))];
+        const userIds = (msgs || []).map((m: any) => m.user_id).filter(Boolean);
+        const uniqueUserIds = Array.from(new Set(userIds));
+
         if (uniqueUserIds.length > 0) {
           const { data: profs } = await supabase
             .from('profiles')
