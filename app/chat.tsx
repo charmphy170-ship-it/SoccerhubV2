@@ -23,6 +23,7 @@ export default function ChatPage() {
   const [sendStatus, setSendStatus] = useState<'idle' | 'sending' | 'sent' | 'error'>('idle');
   const chatEndRef = useRef<HTMLDivElement>(null);
   const supabaseRef = useRef(createClientComponentClient());
+  const channelRef = useRef<any>(null);
 
   // Load user once
   useEffect(() => {
@@ -85,10 +86,7 @@ export default function ChatPage() {
             console.log('Realtime status:', status);
           });
 
-        return () => {
-          channel.unsubscribe();
-          supabase.removeChannel(channel);
-        };
+        channelRef.current = channel;
       } catch (err: any) {
         console.error('Init error:', err);
         if (mounted) {
@@ -98,11 +96,15 @@ export default function ChatPage() {
       }
     }
 
-    const cleanup = init();
+    init();
 
     return () => {
       mounted = false;
-      if (cleanup && typeof cleanup === 'function') cleanup();
+      if (channelRef.current) {
+        channelRef.current.unsubscribe();
+        supabase.removeChannel(channelRef.current);
+        channelRef.current = null;
+      }
     };
   }, []);
 
