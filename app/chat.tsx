@@ -19,7 +19,6 @@ export default function ChatPage() {
   const [newMessage, setNewMessage] = useState('');
   const [user, setUser] = useState<any>(null);
   const [loading, setLoading] = useState(true);
-<<<<<<< HEAD
   const [error, setError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
@@ -93,43 +92,6 @@ export default function ChatPage() {
         channelRef.current.unsubscribe();
         supabase.removeChannel(channelRef.current);
       }
-=======
-  const chatEndRef = useRef<HTMLDivElement>(null);
-  const supabase = createClientComponentClient();
-
-  useEffect(() => {
-    const load = async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      setUser(user);
-
-      const { data } = await supabase
-        .from('chat_messages')
-        .select('*, profiles(username, avatar_url)')
-        .eq('match_id', 'global')
-        .order('created_at', { ascending: true })
-        .limit(100);
-
-      setMessages(data || []);
-      setLoading(false);
-    };
-
-    load();
-
-    const channel = supabase
-      .channel('global-chat')
-      .on('postgres_changes', {
-        event: 'INSERT',
-        schema: 'public',
-        table: 'chat_messages',
-        filter: "match_id=eq.global",
-      }, (payload: any) => {
-        setMessages((prev) => [...prev, payload.new]);
-      })
-      .subscribe();
-
-    return () => {
-      channel.unsubscribe();
->>>>>>> 5f1e9bee1fbbae3c262233800953bc5dce49c80a
     };
   }, [supabase]);
 
@@ -139,7 +101,6 @@ export default function ChatPage() {
 
   const handleSend = async (e: React.FormEvent) => {
     e.preventDefault();
-<<<<<<< HEAD
     if (!newMessage.trim() || !user || sending) return;
 
     setSending(true);
@@ -159,16 +120,6 @@ export default function ChatPage() {
     } finally {
       setSending(false);
     }
-=======
-    if (!newMessage.trim() || !user) return;
-
-    await supabase.from('chat_messages').insert({
-      match_id: 'global',
-      user_id: user.id,
-      content: newMessage.trim(),
-    });
-    setNewMessage('');
->>>>>>> 5f1e9bee1fbbae3c262233800953bc5dce49c80a
   };
 
   return (
@@ -186,15 +137,12 @@ export default function ChatPage() {
           </div>
         </div>
 
-<<<<<<< HEAD
         {error && (
           <div className="mb-4 p-3 bg-red-500/10 border border-red-500/20 rounded-xl text-red-400 text-sm text-center">
             {error}
           </div>
         )}
 
-=======
->>>>>>> 5f1e9bee1fbbae3c262233800953bc5dce49c80a
         <div className="bg-slate-900/60 border border-slate-700/40 rounded-3xl overflow-hidden">
           <div className="h-[60vh] overflow-y-auto p-4 space-y-3">
             {loading ? (
@@ -232,7 +180,6 @@ export default function ChatPage() {
                 value={newMessage}
                 onChange={(e) => setNewMessage(e.target.value)}
                 placeholder="Type a message..."
-<<<<<<< HEAD
                 disabled={sending}
                 className="flex-1 bg-slate-800/60 border border-slate-700/50 rounded-xl py-2.5 px-4 text-white placeholder-slate-500 focus:outline-none focus:border-green-500/50 disabled:opacity-50"
               />
@@ -242,16 +189,6 @@ export default function ChatPage() {
                 className="px-4 py-2.5 bg-green-500 hover:bg-green-600 disabled:opacity-30 text-white rounded-xl transition"
               >
                 {sending ? <Loader2 size={18} className="animate-spin" /> : <Send size={18} />}
-=======
-                className="flex-1 bg-slate-800/60 border border-slate-700/50 rounded-xl py-2.5 px-4 text-white placeholder-slate-500 focus:outline-none focus:border-green-500/50"
-              />
-              <button
-                type="submit"
-                disabled={!newMessage.trim()}
-                className="px-4 py-2.5 bg-green-500 hover:bg-green-600 disabled:opacity-30 text-white rounded-xl transition"
-              >
-                <Send size={18} />
->>>>>>> 5f1e9bee1fbbae3c262233800953bc5dce49c80a
               </button>
             </form>
           ) : (
